@@ -836,7 +836,7 @@ def random_delay(min_delay: float = 0.01, max_delay: float = 0.5):
     time.sleep(random.uniform(min_delay, max_delay))
 
 
-def check_residential(proxy: dict, port: int, api_key: str = "", ip_library: str = "ip2location") -> ProxyQueryResult:
+def check_residential(proxy: dict, port: int, api_key: str = "", ip_library: str = "ipnetcoffee") -> ProxyQueryResult:
     """
     Check if a proxy is residential by making a request through it
 
@@ -844,34 +844,44 @@ def check_residential(proxy: dict, port: int, api_key: str = "", ip_library: str
         proxy: The proxy information dict
         port: The port of the proxy
         api_key: Optional API key for ipapi.is. Uses free tier if not provided
-        ip_library: IP query provider, supported: ip2location/iplark/ipinfo/ippure/ipapi (default: ip2location)
+        ip_library: IP query provider, supported: ip2location/iplark/ipinfo/ipnetcoffee/ippure/ipapi (default: ipnetcoffee)
 
     Returns:
         ProxyQueryResult: Complete proxy query result
     """
 
+    def _resolve_exit_ip(port: int, name: str) -> str:
+        success, content = make_proxy_request(
+            port=port,
+            url="https://ipinfo.io/ip",
+            max_retries=2,
+            timeout=15,
+            deserialize=False,
+        )
+        if not success or not content:
+            logger.warning(f"Failed to get exit IP from ipinfo.io for proxy {name}")
+            return ""
+
+        ip = utils.trim(content)
+        if not ip:
+            logger.warning(f"Invalid exit IP from ipinfo.io for proxy {name}")
+            return ""
+
+        return ip
+
     def _build_url(provider: str, port: int, name: str, api_key: str) -> str:
         if provider == "ipinfo":
-            # First, get the IP address
-            success, content = make_proxy_request(
-                port=port,
-                url="https://ipinfo.io/ip",
-                max_retries=2,
-                timeout=15,
-                deserialize=False,
-            )
-            if not success or not content:
-                logger.warning(f"Failed to get IP from ipinfo.io for proxy {name}")
-                return ""
-
-            # Extract IP from response
-            ip = utils.trim(content)
+            ip = _resolve_exit_ip(port, name)
             if not ip:
-                logger.warning(f"Invalid IP address from ipinfo.io for proxy {name}")
                 return ""
 
-            # Now get detailed information using the IP
             return f"https://ipinfo.io/widget/demo/{ip}"
+        elif provider == "ipnetcoffee":
+            ip = _resolve_exit_ip(port, name)
+            if not ip:
+                return ""
+
+            return f"https://ip.net.coffee/api/ip/lookup/{urllib.parse.quote(ip, safe='')}"
         elif provider == "ipapi":
             url, key = "https://api.ipapi.is", utils.trim(api_key)
             if key:
@@ -885,7 +895,7 @@ def check_residential(proxy: dict, port: int, api_key: str = "", ip_library: str
         return "https://iplark.com/ipapi/public/ipinfo"
 
     def _get_providers(preferred: str) -> list[str]:
-        candidates = ["ip2location", "iplark", "ippure", "ipinfo", "ipapi"]
+        candidates = ["ipnetcoffee", "ippure", "ip2location", "iplark", "ipinfo", "ipapi"]
 
         library = utils.trim(preferred).lower()
         if library not in candidates:
@@ -917,6 +927,14 @@ def check_residential(proxy: dict, port: int, api_key: str = "", ip_library: str
 
             flag = data.get("isResidential", False)
             if flag:
+                company_type, asn_type = "isp", "isp"
+            else:
+                company_type, asn_type = "hosting", "hosting"
+        elif provider == "ipnetcoffee":
+            data = response if isinstance(response, dict) else {}
+            country_code = data.get("countryCode", "")
+
+            if data.get("isResidential") is True:
                 company_type, asn_type = "isp", "isp"
             else:
                 company_type, asn_type = "hosting", "hosting"

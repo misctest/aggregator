@@ -963,10 +963,100 @@ class IPLarkLibrary(IPLibrary):
         return await self._make_request(session, url, retries, timeout)
 
 
+class IPNetCoffeeLibrary(IPLibrary):
+    name = "ipnetcoffee"
+
+    async def build_remark(
+        self,
+        session: aiohttp.ClientSession,
+        ip: str,
+        data: Dict,
+        include_asn_name: bool,
+        retries: int,
+        timeout: int,
+    ) -> str:
+        label = "家宽" if data.get("isResidential") is True else ""
+
+        country_code = (data.get("countryCode") or "").upper()
+        country = await self._resolve_country(
+            session=session,
+            ip=ip,
+            country_code=country_code,
+            country=country_name_zh(country_code) or (data.get("country") or "未知"),
+            retries=retries,
+            timeout=timeout,
+            data=data,
+        )
+
+        company_name = short_company_name(
+            data.get("asOrganization") or data.get("isp") or data.get("company_name") or ""
+        )
+        score = str(data.get("trust_score")).zfill(3) if "trust_score" in data else "NUL"
+
+        # native if registered country code equals country code else broadcast
+        category = "N" if (data.get("registered_country_code") or "").upper() == country_code else "B"
+
+        return self._format_remark(
+            country_code=country_code,
+            country=country,
+            label=label,
+            include_asn_name=include_asn_name,
+            company_name=company_name,
+            detail=f"{score}::{category}",
+        )
+
+    def _extract_province(self, data: Optional[Dict]) -> str:
+        province = super()._extract_province(data)
+        if province:
+            return province
+
+        if not isinstance(data, dict):
+            return ""
+
+        for source in data.get("geo_sources") or []:
+            if not isinstance(source, dict):
+                continue
+
+            province = self._normalize_province(source.get("region"))
+            if province:
+                return province
+
+        return ""
+
+    async def _resolve_ip(self, session: aiohttp.ClientSession, retries: int, timeout: int) -> Optional[str]:
+        url = "https://ipinfo.io/ip"
+        text, _ = await self._make_request(session, url, retries, timeout, deserialize=False)
+        if not isinstance(text, str):
+            return None
+
+        address = text.strip()
+        try:
+            ipaddress.ip_address(address)
+            return address
+        except ValueError:
+            return None
+
+    async def _fetch(
+        self, session: aiohttp.ClientSession, proxy_info: ProxyInfo, retries: int, timeout: int
+    ) -> Tuple[Optional[Dict], Optional[str]]:
+        address = await self._resolve_ip(session, retries, timeout)
+        if not address:
+            host = "" if not proxy_info else proxy_info.host
+            return None, f"Failed to get exit IP, host: {host}"
+
+        url = f"https://ip.net.coffee/api/ip/lookup/{quote(address, safe='')}"
+        data, error = await self._make_request(session, url, retries, timeout)
+        if not data:
+            return None, error or f"Failed to get IP info from ip.net.coffee, ip: {address}"
+
+        return data, None
+
+
 IP_LIBRARIES = {
     "ip2location": IP2LocationLibrary,
     "iplark": IPLarkLibrary,
     "ipinfo": IPInfoLibrary,
+    "ipnetcoffee": IPNetCoffeeLibrary,
     "ippure": IPPureLibrary,
 }
 
@@ -1689,7 +1779,7 @@ async def main():
         dest="ip_library",
         choices=sorted(IP_LIBRARIES.keys()),
         default="ip2location",
-        help="IP地址数据库服务商: ip2location、iplark、ipinfo 或 ippure (默认: ip2location)",
+        help="IP地址数据库服务商: ip2location、iplark、ipinfo、ipnetcoffee 或 ippure (默认: ip2location)",
     )
 
     args = parser.parse_args()
