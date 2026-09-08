@@ -459,7 +459,7 @@ def locate_by_geoip(proxy: dict, reader: database.Reader) -> dict:
             proxy["name"] = country
             proxy["renamed"] = True
         else:
-            logger.warning(f"cannot get geolocation and rename, address: {address}")
+            logger.warning(f"cannot get geolocation and name, address: {address}")
     except Exception as e:
         logger.error(f"query ip geolocation failed, address: {address}, error: {str(e)}")
 
