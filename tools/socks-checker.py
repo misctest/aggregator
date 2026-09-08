@@ -975,7 +975,7 @@ class IPNetCoffeeLibrary(IPLibrary):
         retries: int,
         timeout: int,
     ) -> str:
-        label = "家宽" if data.get("isResidential") is True else ""
+        label = "家宽" if data.get("isResidential") is True and data.get("company_type", "") != "business" else ""
 
         country_code = (data.get("countryCode") or "").upper()
         country = await self._resolve_country(
@@ -1042,7 +1042,7 @@ class IPNetCoffeeLibrary(IPLibrary):
         address = await self._resolve_ip(session, retries, timeout)
         if not address:
             host = "" if not proxy_info else proxy_info.host
-            return None, f"Failed to get exit IP, host: {host}"
+            return None, f"Failed to get egress IP, host: {host}"
 
         url = f"https://ip.net.coffee/api/ip/lookup/{quote(address, safe='')}"
         data, error = await self._make_request(session, url, retries, timeout)
@@ -1174,7 +1174,7 @@ class MeowVPSLibrary(IPLibrary):
         address = await self._resolve_ip(session, retries, timeout)
         if not address:
             host = "" if not proxy_info else proxy_info.host
-            return None, f"Failed to get exit IP, host: {host}"
+            return None, f"Failed to get egress IP, host: {host}"
 
         url = f"https://meowvps.com/api/ip-aggregator/{quote(address, safe='')}"
         headers = {
